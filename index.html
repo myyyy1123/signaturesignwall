@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Signature Wall with Camera</title>
+  <style>
+    :root {
+      --bg: #f7f9fc;
+      --text: #333;
+      --card: #fff;
+      --input: #fff;
+      --shadow: rgba(0,0,0,0.1);
+    }
+    body.dark {
+      --bg: #121212;
+      --text: #eee;
+      --card: #1e1e1e;
+      --input: #2a2a2a;
+      --shadow: rgba(255,255,255,0.05);
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 1rem;
+      transition: background 0.3s, color 0.3s;
+    }
+    .toggle-theme {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      background: #333;
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 20px;
+      cursor: pointer;
+      z-index: 1000;
+    }
+    .container {
+      max-width: 500px;
+      margin: auto;
+      background: var(--card);
+      padding: 1.5rem;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px var(--shadow);
+      margin-bottom: 2rem;
+      transition: background 0.3s;
+    }
+    h1, h2 {
+      text-align: center;
+    }
+    label {
+      display: block;
+      font-weight: bold;
+      margin-top: 1rem;
+    }
+    input[type="text"], input[type="file"], input[type="color"] {
+      width: 100%;
+      padding: 0.5rem;
+      border: 1px solid #888;
+      border-radius: 6px;
+      background: var(--input);
+      color: var(--text);
+      margin-top: 0.3rem;
+    }
+    canvas {
+      width: 100%;
+      height: 200px;
+      border: 1px solid #888;
+      border-radius: 6px;
+      background: white;
+      touch-action: none;
+    }
+    button {
+      margin-top: 1rem;
+      padding: 0.6rem 1rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    button:hover {
+      opacity: 0.9;
+    }
+    .submission {
+      position: relative;
+      background: var(--card);
+      padding: 1rem;
+      border-radius: 10px;
+      box-shadow: 0 2px 6px var(--shadow);
+      margin-bottom: 1rem;
+    }
+    .submission img {
+      max-width: 100%;
+      border-radius: 6px;
+      margin-top: 0.5rem;
+    }
+    .delete-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: #e53935;
+      color: white;
+      border: none;
+      padding: 4px 8px;
+      border-radius: 5px;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    #video {
+      width: 100%;
+      border-radius: 6px;
+      margin-top: 0.5rem;
+      background: black;
+    }
+    #cameraControls {
+      display: flex;
+      gap: 10px;
+      margin-top: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+  <button class="toggle-theme" onclick="toggleDarkMode()">🌙 Toggle Dark Mode</button>
+
+  <h1>🎉 Last Day Signature Wall</h1>
+  <div class="container">
+    <label>Your Name:</label>
+    <input id="name" type="text" placeholder="Enter your name" />
+
+    <label>
+      <input type="checkbox" id="useCameraToggle" /> Use Camera Instead of Upload
+    </label>
+
+    <div id="uploadSection">
+      <label>Upload Selfie:</label>
+      <input id="selfie" type="file" accept="image/*" />
+    </div>
+
+    <div id="cameraSection" style="display:none;">
+      <video id="video" autoplay playsinline></video>
+      <div id="cameraControls">
+        <button id="captureBtn">Capture Photo</button>
+        <button id="closeCameraBtn">Close Camera</button>
+      </div>
+      <canvas id="cameraCanvas" style="display:none;"></canvas>
+    </div>
+
+    <label>Pen Color:</label>
+    <input id="color" type="color" value="#000000" />
+
+    <label>Sign Below:</label>
+    <canvas id="signature"></canvas>
+    <button onclick="clearCanvas()">Clear</button>
+    <button onclick="submit()">Submit</button>
+  </div>
+
+  <h2>📜 Previous Submissions</h2>
+  <div id="wall" class="container"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyCy-t2A1DYQ5HNt7PThYXqWb0rqfEHY2jY",
+      authDomain: "school-signatures.firebaseapp.com",
+      projectId: "school-signatures",
+      storageBucket: "school-signatures.appspot.com",
+      messagingSenderId: "271725933817",
+      appId: "1:271725933817:web:e59398536da15365a0de28",
+      measurementId: "G-T6NZE59F09"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // Canvas signature setup
+    const canvas = document.getElementById("signature");
+    const ctx = canvas.getContext("2d");
+    let drawing = false;
+    let lastX = 0, lastY = 0;
+
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width;
+      canvas.height = 200;
+    }
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+
+    canvas.addEventListener("pointerdown", e => {
+      drawing = true;
+      [lastX, lastY] = [e.offsetX, e.offsetY];
+    });
+
+    canvas.addEventListener("pointermove", e => {
+      if (!drawing) return;
+      ctx.strokeStyle = document.getElementById("color").value;
+      ctx.lineWidth = 2;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(e.offsetX, e.offsetY);
+      ctx.stroke();
+      [lastX, lastY] = [e.offsetX, e.offsetY];
+    });
+
+    canvas.addEventListener("pointerup", () => drawing = false);
+    canvas.addEventListener("pointerleave", () => drawing = false);
+
+    function clearCanvas() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // Cookies to track submissions
+    function setCookie(name, value, days) {
+      const expires = new Date(Date.now() + days * 864e5).toUTCString();
+      document.cookie = name + '=' + encodeURIComponent(value) + '; expires=' + expires + '; path=/';
+    }
+
+    function getCookie(name) {
+      return document.cookie.split('; ').reduce((r, v) => {
+        const parts = v.split('=');
+        return parts[0] === name ? decodeURIComponent(parts[1]) : r
+      }, '');
+    }
+
+    // Camera setup
+    const useCameraToggle = document.getElementById("useCameraToggle");
+    const uploadSection = document.getElementById("uploadSection");
+    const cameraSection = document.getElementById("cameraSection");
+    const video = document.getElementById("video");
+    const captureBtn = document.getElementById("captureBtn");
+    const closeCameraBtn = document.getElementById("closeCameraBtn");
+    const cameraCanvas = document.getElementById("cameraCanvas");
+    let cameraStream = null;
+    let capturedImageData = null;
+
+    useCameraToggle.addEventListener("change", async () => {
+      if (useCameraToggle.checked) {
+        uploadSection.style.display = "none";
+        cameraSection.style.display = "block";
+        await startCamera();
+      } else {
+        stopCamera();
+        cameraSection.style.display = "none";
+        uploadSection.style.display = "block";
+        capturedImageData = null;
+      }
+    });
+
+    async function startCamera() {
+      try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+        video.srcObject = cameraStream;
+      } catch (err) {
+        alert("Could not access camera: " + err.message);
+        useCameraToggle.checked = false;
+        uploadSection.style.display = "block";
+        cameraSection.style.display = "none";
+      }
+    }
+
+    function stopCamera() {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+        cameraStream = null;
+      }
+      video.srcObject = null;
+    }
+
+    captureBtn.addEventListener("click", () => {
+      const width = video.videoWidth;
+      const height = video.videoHeight;
+      cameraCanvas.width = width;
+      cameraCanvas.height = height;
+      const ctxCam = cameraCanvas.getContext("2d");
+      ctxCam.drawImage(video, 0, 0, width, height);
+      capturedImageData = cameraCanvas.toDataURL("image/png");
+      alert("Photo captured! Now submit.");
+    });
+
+    closeCameraBtn.addEventListener("click", () => {
+      useCameraToggle.checked = false;
+      stopCamera();
+      cameraSection.style.display = "none";
+      uploadSection.style.display = "block";
+      capturedImageData = null;
+    });
+
+    // Submit data to Firebase
+    async function submit() {
+      const name = document.getElementById("name").value.trim();
+      if (!name) {
+        alert("Please enter your name.");
+        return;
+      }
+
+      // Get selfie data
+      let selfieDataUrl = null;
+      if (useCameraToggle.checked) {
+        if (!capturedImageData) {
+          alert("Please capture a photo using the camera.");
+          return;
+        }
+        selfieDataUrl = capturedImageData;
+      } else {
+        const fileInput = document.getElementById("selfie");
+        if (fileInput.files.length === 0) {
+          alert("Please upload a selfie.");
+          return;
+        }
+        const file = fileInput.files[0];
+        selfieDataUrl = await fileToDataURL(file);
+      }
+
+      const penColor = document.getElementById("color").value;
+
+      // Get signature data
+      const signatureDataUrl = canvas.toDataURL();
+
+      // Save to Firebase
+      try {
+        const docRef = await db.collection("signatures").add({
+          name,
+          penColor,
+          signatureDataUrl,
+          selfieDataUrl,
+          timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        // Save cookie for this submission ID (for delete access)
+        setCookie("signature_" + docRef.id, "true", 30);
+
+        confetti({
+          particleCount: 150,
+          spread: 70,
+          origin: { y: 0.6 }
+        });
+
+        alert("Thank you for signing!");
+
+        clearCanvas();
+        document.getElementById("name").value = "";
+        document.getElementById("selfie").value = "";
+        capturedImageData = null;
+        if(useCameraToggle.checked) {
+          stopCamera();
+          useCameraToggle.checked = false;
+          cameraSection.style.display = "none";
+          uploadSection.style.display = "block";
+        }
+
+        loadSubmissions();
+      } catch (err) {
+        alert("Error saving signature: " + err.message);
+      }
+    }
+
+    function fileToDataURL(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target.result);
+        reader.onerror = e => reject(e);
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // Load and display all submissions
+    async function loadSubmissions() {
+      const wall = document.getElementById("wall");
+      wall.innerHTML = "<p>Loading...</p>";
+      try {
+        const snapshot = await db.collection("signatures").orderBy("timestamp", "desc").get();
+        if (snapshot.empty) {
+          wall.innerHTML = "<p>No signatures yet. Be the first!</p>";
+          return;
+        }
+        wall.innerHTML = "";
+        snapshot.forEach(doc => {
+          const data = doc.data();
+          const id = doc.id;
+          const div = document.createElement("div");
+          div.className = "submission";
+
+          const userHasCookie = getCookie("signature_" + id) === "true";
+
+          div.innerHTML = `
+            <strong>${escapeHtml(data.name)}</strong><br />
+            <img src="${data.selfieDataUrl}" alt="Selfie of ${escapeHtml(data.name)}" />
+            <br />
+            <img src="${data.signatureDataUrl}" alt="Signature of ${escapeHtml(data.name)}" />
+            ${userHasCookie ? `<button class="delete-btn" data-id="${id}">Delete</button>` : ""}
+          `;
+
+          wall.appendChild(div);
+        });
+
+        // Add delete handlers
+        document.querySelectorAll(".delete-btn").forEach(btn => {
+          btn.addEventListener("click", async () => {
+            const id = btn.getAttribute("data-id");
+            if (confirm("Are you sure you want to delete your signature?")) {
+              try {
+                await db.collection("signatures").doc(id).delete();
+                setCookie("signature_" + id, "", -1); // Remove cookie
+                loadSubmissions();
+              } catch (err) {
+                alert("Error deleting signature: " + err.message);
+              }
+            }
+          });
+        });
+
+      } catch (err) {
+        wall.innerHTML = "<p>Error loading signatures: " + err.message + "</p>";
+      }
+    }
+
+    // Simple escape for HTML to avoid injection
+    function escapeHtml(text) {
+      return text.replace(/[&<>"']/g, m => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+      })[m]);
+    }
+
+    // Dark mode toggle
+    function toggleDarkMode() {
+      document.body.classList.toggle("dark");
+    }
+
+    // Initial load
+    loadSubmissions();
+  </script>
+</body>
+</html>
